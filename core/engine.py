@@ -2,52 +2,55 @@ import threading
 from queue import Queue
 
 from comm.tcp_receiver import start_tcp_server
+from comm.ws_server import start_ws_server, broadcast_ws
 from core.parser import parse_line
-from storage.csv_logger import log_row
 from core.buffers import add_sample
-from comm.ui_broadcaster import start_ui_server, broadcast
-
+from storage.csv_logger import log_row
+from comm.serial_receiver import start_serial_receiver
 
 
 queue = Queue(maxsize=10000)
 
 
-# Receiver Thread
 def receiver_worker():
     print("Receiver thread started")
-
     for line in start_tcp_server():
         queue.put(line)
 
 
-
-# Processor Thread
 def processor_worker():
     print("Processor thread started")
-
     while True:
         line = queue.get()
-
         data = parse_line(line)
 
         if data:
-             add_sample(data)
-             broadcast(data)
-             log_row(data)
+            add_sample(data)
+            broadcast_ws(data)
+            log_row(data)
 
         queue.task_done()
 
 
 
 
-# Engine start
+def usb_receiver_worker():
+    for line in start_serial_receiver(port="COM3", baudrate=115200):
+        queue.put(line)
+
+
+
 def start_engine():
-    t1 = threading.Thread(target=receiver_worker, daemon=True)
-    t2 = threading.Thread(target=processor_worker, daemon=True)
-    t3 = threading.Thread(target=start_ui_server, daemon=True)
+    print("Engine starting...")
 
-    t1.start()
-    t2.start()
-    t3.start()
+    t_wifi = threading.Thread(target=receiver_worker, daemon=True)
+    t_usb = threading.Thread(target=usb_receiver_worker, daemon=True)
+    t_proc = threading.Thread(target=processor_worker, daemon=True)
+    t_ws = threading.Thread(target=start_ws_server, daemon=True)
 
-    t1.join()
+    t_wifi.start()
+    t_usb.start()
+    t_proc.start()
+    t_ws.start()
+
+    t_wifi.join()
